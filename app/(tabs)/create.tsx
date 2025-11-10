@@ -1,112 +1,309 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Image,
+  Alert,
+  ActivityIndicator,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { supabase } from '../services/supabaseConfig';
+import { useAuth } from '../context/AuthContext';
+import Icon from 'react-native-vector-icons/Feather';
+import { decode } from 'base64-arraybuffer';
 
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Fonts } from '@/constants/theme';
+export default function Create() {
+  const [content, setContent] = useState('');
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
 
-export default function TabTwoScreen() {
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please grant access to your photos');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setImageUri(result.assets[0].uri);
+    }
+  };
+
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please grant camera access');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setImageUri(result.assets[0].uri);
+    }
+  };
+
+  const uploadImage = async (uri: string): Promise<string> => {
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      const arrayBuffer = await new Response(blob).arrayBuffer();
+      const base64 = decode(arrayBuffer as any);
+
+      const fileExt = 'jpg';
+      const fileName = `${user?.id}/${Date.now()}.${fileExt}`;
+
+      const { data, error } = await supabase.storage
+        .from('post-images')
+        .upload(fileName, base64, {
+          contentType: 'image/jpeg',
+        });
+
+      if (error) throw error;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('post-images')
+        .getPublicUrl(data.path);
+
+      return publicUrlData.publicUrl;
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      throw new Error('Failed to upload image');
+    }
+  };
+
+  const handlePost = async () => {
+    if (!content.trim() && !imageUri) {
+      Alert.alert('Error', 'Please add some content or an image');
+      return;
+    }
+
+    if (!user) {
+      Alert.alert('Error', 'You must be logged in to post');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      let imageUrl = null;
+
+      if (imageUri) {
+        imageUrl = await uploadImage(imageUri);
+      }
+
+      const newPost = {
+        user_id: user.id,
+        user_name: user.display_name,
+        user_avatar: user.photo_url,
+        content: content.trim(),
+        image_url: imageUrl,
+        likes: 0,
+        liked_by: [],
+        created_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from('posts')
+        .insert([newPost]);
+
+      if (error) throw error;
+
+      Alert.alert('Success', 'Post created successfully!');
+      setContent('');
+      setImageUri(null);
+    } catch (error: any) {
+      console.error('Error creating post:', error);
+      Alert.alert('Error', error.message || 'Failed to create post');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+    >
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Create Post</Text>
+          <Text style={styles.headerNote}>Note: Only JPG images are supported</Text>
+        </View>
+
+        <View style={styles.content}>
+          <TextInput
+            style={styles.textInput}
+            placeholder="What's on your mind?"
+            placeholderTextColor="#9CA3AF"
+            value={content}
+            onChangeText={setContent}
+            multiline
+            maxLength={500}
+          />
+
+          {imageUri && (
+            <View style={styles.imagePreview}>
+              <Image source={{ uri: imageUri }} style={styles.previewImage} />
+              <TouchableOpacity
+                style={styles.removeButton}
+                onPress={() => setImageUri(null)}
+              >
+                <Icon name="x" color="#FFFFFF" size={20} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View style={styles.actions}>
+            <TouchableOpacity style={styles.actionButton} onPress={pickImage}>
+              <Icon name="image" color="#8B5CF6" size={24} />
+              <Text style={styles.actionText}>Gallery</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.actionButton} onPress={takePhoto}>
+              <Icon name="camera" color="#8B5CF6" size={24} />
+              <Text style={styles.actionText}>Camera</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.postButton, loading && styles.postButtonDisabled]}
+            onPress={handlePost}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.postButtonText}>Post</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
   },
-  titleContainer: {
+  scrollContent: {
+    flexGrow: 1,
+  },
+  header: {
+    backgroundColor: '#FFFFFF',
+    paddingTop: 50,
+    paddingBottom: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  headerNote: {
+    fontSize: 12,
+    color: '#EF4444',
+    marginTop: 4,
+  },
+  content: {
+    padding: 20,
+  },
+  textInput: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 16,
+    padding: 16,
+    fontSize: 16,
+    color: '#1F2937',
+    minHeight: 150,
+    textAlignVertical: 'top',
+    marginBottom: 20,
+  },
+  imagePreview: {
+    position: 'relative',
+    marginBottom: 20,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  previewImage: {
+    width: '100%',
+    height: 300,
+    borderRadius: 16,
+  },
+  removeButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: '#EF4444',
+    borderRadius: 20,
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actions: {
     flexDirection: 'row',
-    gap: 8,
+    justifyContent: 'space-around',
+    marginBottom: 20,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#8B5CF6',
+  },
+  actionText: {
+    marginLeft: 8,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#8B5CF6',
+  },
+  postButton: {
+    backgroundColor: '#8B5CF6',
+    padding: 18,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  postButtonDisabled: {
+    opacity: 0.6,
+  },
+  postButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
   },
 });

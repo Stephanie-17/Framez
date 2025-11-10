@@ -1,19 +1,19 @@
 export interface User {
-  uid: string;
+  id: string;
   email: string;
-  displayName: string;
-  photoURL?: string;
-  createdAt: string;
+  display_name: string;
+  photo_url?: string;
+  created_at: string;
 }
 
 export interface Post {
   id: string;
-  userId: string;
-  userName: string;
-  userAvatar?: string;
+  user_id: string;
+  user_name: string;
+  user_avatar?: string;
   content: string;
-  imageUrl?: string;
+  image_url?: string;
   likes: number;
-  likedBy: string[];
-  createdAt: string;
+  liked_by: string[];
+  created_at: string;
 }
