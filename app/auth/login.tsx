@@ -5,64 +5,47 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const { login } = useAuth();
   const router = useRouter();
 
-  const getErrorMessage = (error: any): string => {
-    const errorCode = error.code;
-    
-    switch (errorCode) {
-      case 'auth/invalid-email':
-        return 'Invalid email address format.';
-      case 'auth/user-disabled':
-        return 'This account has been disabled.';
-      case 'auth/user-not-found':
-        return 'No account found with this email.';
-      case 'auth/wrong-password':
-        return 'Incorrect password.';
-      case 'auth/invalid-credential':
-        return 'Invalid email or password.';
-      case 'auth/too-many-requests':
-        return 'Too many failed attempts. Please try again later.';
-      case 'auth/network-request-failed':
-        return 'Network error. Please check your connection.';
-      default:
-        return error.message || 'Login failed. Please try again.';
-    }
-  };
-
   const handleLogin = async () => {
+    setError('');
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
+      setError('Please fill in all fields');
       return;
     }
 
-    if (!EMAIL_REGEX.test(email.trim())) {
-      Alert.alert('Error', 'Please enter a valid email address');
+    if (!emailRegex.test(email)) {
+      setError('Please enter a valid email address');
       return;
     }
 
     setLoading(true);
+
     try {
       await login(email.trim(), password);
       router.replace('/(tabs)' as any);
     } catch (error: any) {
       console.error('Login error:', error);
-      Alert.alert('Login Failed', getErrorMessage(error));
+      const errorMessage = error.message || 'Invalid email or password';
+      setError(errorMessage);
+      Alert.alert('Login Failed', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -73,15 +56,18 @@ export default function Login() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
-      <View style={styles.wrapper}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.content}>
           <View style={styles.header}>
-            <View style={styles.logo}>
-              <Text style={styles.logoText}>F</Text>
-            </View>
-            <Text style={styles.title}>Framez</Text>
-            <Text style={styles.subtitle}>Welcome back!</Text>
+            <Text style={styles.title}>Welcome Back</Text>
+            <Text style={styles.subtitle}>Sign in to continue</Text>
           </View>
+
+          {error ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
 
           <View style={styles.form}>
             <TextInput
@@ -89,7 +75,10 @@ export default function Login() {
               placeholder="Email"
               placeholderTextColor="#9CA3AF"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(text) => {
+                setEmail(text);
+                setError('');
+              }}
               autoCapitalize="none"
               keyboardType="email-address"
               editable={!loading}
@@ -100,7 +89,10 @@ export default function Login() {
               placeholder="Password"
               placeholderTextColor="#9CA3AF"
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(text) => {
+                setPassword(text);
+                setError('');
+              }}
               secureTextEntry
               editable={!loading}
             />
@@ -119,13 +111,13 @@ export default function Login() {
 
             <View style={styles.footer}>
               <Text style={styles.footerText}>Don&apos;t have an account? </Text>
-              <TouchableOpacity onPress={() => router.push('/auth/register' as any)}>
+              <TouchableOpacity onPress={() => router.push('/auth/register' as any)} disabled={loading}>
                 <Text style={styles.link}>Sign Up</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -133,60 +125,54 @@ export default function Login() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F9FAFB',
   },
-  wrapper: {
-    flex: 1,
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
   },
   content: {
     width: '100%',
     maxWidth: 700,
+    padding: 20,
   },
   header: {
+    marginBottom: 40,
     alignItems: 'center',
-    marginBottom: 48,
-  },
-  logo: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#8B5CF6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    shadowColor: '#8B5CF6',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  logoText: {
-    fontSize: 50,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
   },
   title: {
-    fontSize: 42,
+    fontSize: 32,
     fontWeight: 'bold',
-    color: '#1F2937',
+    color: '#8B5CF6',
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#6B7280',
+  },
+  errorContainer: {
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#EF4444',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 20,
+  },
+  errorText: {
+    color: '#DC2626',
+    fontSize: 14,
+    textAlign: 'center',
   },
   form: {
     width: '100%',
   },
   input: {
     backgroundColor: '#FFFFFF',
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 16,
-    padding: 18,
+    borderRadius: 12,
+    padding: 16,
     fontSize: 16,
     color: '#1F2937',
     marginBottom: 16,
@@ -194,7 +180,7 @@ const styles = StyleSheet.create({
   button: {
     backgroundColor: '#8B5CF6',
     padding: 18,
-    borderRadius: 16,
+    borderRadius: 12,
     alignItems: 'center',
     marginTop: 8,
     shadowColor: '#8B5CF6',
@@ -217,12 +203,12 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   footerText: {
+    fontSize: 14,
     color: '#6B7280',
-    fontSize: 15,
   },
   link: {
+    fontSize: 14,
     color: '#8B5CF6',
-    fontSize: 15,
     fontWeight: '600',
   },
 });

@@ -19,37 +19,79 @@ export default function Profile() {
   const { user, logout } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [totalLikes, setTotalLikes] = useState(0);
   const router = useRouter();
+
+  useEffect(() => {
+    if (!user) {
+      // Use setTimeout to ensure navigation happens after mount
+      const timer = setTimeout(() => {
+        router.replace('/auth/login' as any);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+    
+    fetchUserPosts();
+    
+    // Real-time subscription for posts
+    const subscription = supabase
+      .channel('user_posts_channel')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'posts',
+        filter: `user_id=eq.${user.id}`
+      }, () => {
+        fetchUserPosts();
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [user]);
 
   const fetchUserPosts = useCallback(async () => {
     if (!user) return;
 
+    setLoading(true);
+    setError(null);
+
     try {
-      const { data, error } = await supabase
+      console.log('Fetching posts for user:', user.id);
+      
+      const { data, error: fetchError } = await supabase
         .from('posts')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (fetchError) {
+        console.error('Fetch error:', fetchError);
+        throw fetchError;
+      }
 
+      console.log('Posts fetched:', data?.length || 0);
       setPosts(data as Post[]);
       
       const likes = (data as Post[]).reduce((sum, post) => sum + post.likes, 0);
       setTotalLikes(likes);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching user posts:', error);
+      setError(error.message || 'Failed to load posts');
+      Alert.alert(
+        'Error Loading Posts',
+        error.message || 'Could not load your posts. Please check your connection.',
+        [
+          { text: 'Retry', onPress: () => fetchUserPosts() },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
     } finally {
       setLoading(false);
     }
   }, [user]);
-
-  useEffect(() => {
-    if (user) {
-      fetchUserPosts();
-    }
-  }, [user, fetchUserPosts]);
 
   const handleLogout = async () => {
     Alert.alert(
@@ -87,7 +129,7 @@ export default function Profile() {
     </View>
   );
 
-  if (loading) {
+  if (!user) {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color="#8B5CF6" />
@@ -95,64 +137,79 @@ export default function Profile() {
     );
   }
 
-  if (!user) {
+  if (loading) {
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>No user found</Text>
+        <ActivityIndicator size="large" color="#8B5CF6" />
+        <Text style={styles.loadingText}>Loading your profile...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.centerContainer}>
+        <Icon name="alert-circle" size={48} color="#EF4444" />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={fetchUserPosts}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Profile</Text>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-          <Icon name="log-out" color="#EF4444" size={24} />
-        </TouchableOpacity>
-      </View>
+      <View style={styles.contentWrapper}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Profile</Text>
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+            <Icon name="log-out" color="#EF4444" size={24} />
+          </TouchableOpacity>
+        </View>
 
-      <View style={styles.profileSection}>
-        <Image
-          source={{ uri: user.photo_url || 'https://via.placeholder.com/100' }}
-          style={styles.profileImage}
-        />
-        <Text style={styles.displayName}>{user.display_name}</Text>
-        <Text style={styles.email}>{user.email}</Text>
+        <View style={styles.profileSection}>
+          <Image
+            source={{ uri: user.photo_url || 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' }}
+            style={styles.profileImage}
+          />
+          <Text style={styles.displayName}>{user.display_name}</Text>
+          <Text style={styles.email}>{user.email}</Text>
 
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{posts.length}</Text>
-            <Text style={styles.statLabel}>Posts</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{totalLikes}</Text>
-            <Text style={styles.statLabel}>Likes</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>0</Text>
-            <Text style={styles.statLabel}>Following</Text>
+          <View style={styles.statsContainer}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{posts.length}</Text>
+              <Text style={styles.statLabel}>Posts</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{totalLikes}</Text>
+              <Text style={styles.statLabel}>Likes</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>0</Text>
+              <Text style={styles.statLabel}>Following</Text>
+            </View>
           </View>
         </View>
-      </View>
 
-      <View style={styles.postsHeader}>
-        <Text style={styles.postsTitle}>Your Posts</Text>
-      </View>
+        <View style={styles.postsHeader}>
+          <Text style={styles.postsTitle}>Your Posts</Text>
+        </View>
 
-      <FlatList
-        data={posts}
-        renderItem={renderPost}
-        keyExtractor={(item) => item.id}
-        numColumns={3}
-        contentContainerStyle={styles.gridContainer}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No posts yet</Text>
-            <Text style={styles.emptySubtext}>Start sharing your moments!</Text>
-          </View>
-        }
-      />
+        <FlatList
+          data={posts}
+          renderItem={renderPost}
+          keyExtractor={(item) => item.id}
+          numColumns={3}
+          contentContainerStyle={styles.gridContainer}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No posts yet</Text>
+              <Text style={styles.emptySubtext}>Start sharing your moments!</Text>
+            </View>
+          }
+        />
+      </View>
     </View>
   );
 }
@@ -161,14 +218,45 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
+    alignItems: 'center',
+  },
+  contentWrapper: {
+    width: '100%',
+    maxWidth: 700,
+    flex: 1,
   },
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#F9FAFB',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#EF4444',
+    textAlign: 'center',
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: '#8B5CF6',
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   header: {
+    width: '100%',
     backgroundColor: '#FFFFFF',
     paddingTop: 50,
     paddingBottom: 16,
@@ -285,9 +373,5 @@ const styles = StyleSheet.create({
   emptySubtext: {
     fontSize: 14,
     color: '#9CA3AF',
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#EF4444',
   },
 });

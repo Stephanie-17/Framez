@@ -63,25 +63,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          display_name: displayName,
+        },
+      },
     });
 
     if (authError) throw authError;
     if (!authData.user) throw new Error('Signup failed');
 
-    const newUser: User = {
-      id: authData.user.id,
-      email: authData.user.email!,
-      display_name: displayName,
-      photo_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
-      created_at: new Date().toISOString(),
-    };
-
-    const { error: profileError } = await supabase
-      .from('users')
-      .insert([newUser]);
-
-    if (profileError) throw profileError;
-    setUser(newUser);
+    // The trigger will handle creating the user profile
   };
 
   const login = async (email: string, password: string) => {

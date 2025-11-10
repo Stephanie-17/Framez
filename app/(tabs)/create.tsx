@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,12 +17,28 @@ import { supabase } from '../services/supabaseConfig';
 import { useAuth } from '../context/AuthContext';
 import Icon from 'react-native-vector-icons/Feather';
 import { decode } from 'base64-arraybuffer';
+import { useRouter } from 'expo-router';
 
 export default function Create() {
   const [content, setContent] = useState('');
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!user) {
+      router.replace('/auth/login' as any);
+    }
+  }, [user,router]);
+
+  if (!user) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#8B5CF6" />
+      </View>
+    );
+  }
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -70,13 +86,19 @@ export default function Create() {
       const arrayBuffer = await new Response(blob).arrayBuffer();
       const base64 = decode(arrayBuffer as any);
 
-      const fileExt = 'jpg';
+      const uriParts = uri.split('.');
+      const fileExt = uriParts[uriParts.length - 1].toLowerCase() || 'jpg';
       const fileName = `${user?.id}/${Date.now()}.${fileExt}`;
+
+      let contentType = 'image/jpeg';
+      if (fileExt === 'png') contentType = 'image/png';
+      else if (fileExt === 'webp') contentType = 'image/webp';
+      else if (fileExt === 'gif') contentType = 'image/gif';
 
       const { data, error } = await supabase.storage
         .from('post-images')
         .upload(fileName, base64, {
-          contentType: 'image/jpeg',
+          contentType,
         });
 
       if (error) throw error;
@@ -109,32 +131,49 @@ export default function Create() {
       let imageUrl = null;
 
       if (imageUri) {
+        console.log('Uploading image...');
         imageUrl = await uploadImage(imageUri);
+        console.log('Image uploaded:', imageUrl);
       }
 
       const newPost = {
         user_id: user.id,
         user_name: user.display_name,
         user_avatar: user.photo_url,
-        content: content.trim(),
+        content: content.trim() || null,
         image_url: imageUrl,
         likes: 0,
         liked_by: [],
         created_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase
+      console.log('Creating post:', newPost);
+
+      const { data, error } = await supabase
         .from('posts')
-        .insert([newPost]);
+        .insert([newPost])
+        .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
 
-      Alert.alert('Success', 'Post created successfully!');
+      console.log('Post created successfully:', data);
+      
       setContent('');
       setImageUri(null);
+      
+      Alert.alert('Success', 'Post created successfully!', [
+        { text: 'OK', onPress: () => console.log('Post success acknowledged') }
+      ]);
     } catch (error: any) {
       console.error('Error creating post:', error);
-      Alert.alert('Error', error.message || 'Failed to create post');
+      Alert.alert(
+        'Error', 
+        error.message || 'Failed to create post. Please check your connection and try again.',
+        [{ text: 'OK' }]
+      );
     } finally {
       setLoading(false);
     }
@@ -148,7 +187,7 @@ export default function Create() {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Create Post</Text>
-          <Text style={styles.headerNote}>Note: Only JPG images are supported</Text>
+          <Text style={styles.headerNote}>Supports: JPG, PNG, WebP, GIF</Text>
         </View>
 
         <View style={styles.content}>
@@ -208,6 +247,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F9FAFB',
   },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+  },
   scrollContent: {
     flexGrow: 1,
   },
@@ -226,7 +271,7 @@ const styles = StyleSheet.create({
   },
   headerNote: {
     fontSize: 12,
-    color: '#EF4444',
+    color: '#8B5CF6',
     marginTop: 4,
   },
   content: {

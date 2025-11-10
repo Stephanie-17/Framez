@@ -5,73 +5,67 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 export default function Register() {
-  const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const { signup } = useAuth();
   const router = useRouter();
 
-  const getErrorMessage = (error: any): string => {
-    const errorCode = error.code;
-    
-    switch (errorCode) {
-      case 'auth/email-already-in-use':
-        return 'This email is already registered.';
-      case 'auth/invalid-email':
-        return 'Invalid email address format.';
-      case 'auth/operation-not-allowed':
-        return 'Email/password accounts are not enabled.';
-      case 'auth/weak-password':
-        return 'Password is too weak. Use at least 6 characters.';
-      case 'auth/network-request-failed':
-        return 'Network error. Please check your connection.';
-      default:
-        return error.message || 'Signup failed. Please try again.';
-    }
-  };
-
   const handleSignup = async () => {
-    if (!displayName.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
+    setError('');
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email.trim() || !password.trim() || !displayName.trim()) {
+      setError('Please fill in all fields');
       return;
     }
 
-    if (!EMAIL_REGEX.test(email.trim())) {
-      Alert.alert('Error', 'Please enter a valid email address');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
+    if (!emailRegex.test(email)) {
+      setError('Please enter a valid email address');
       return;
     }
 
     if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+      setError('Password must be at least 6 characters');
       return;
     }
 
     setLoading(true);
+
     try {
       await signup(email.trim(), password, displayName.trim());
-      router.replace('/(tabs)' as any);
+      Alert.alert(
+        'Success',
+        'Account created! Please check your email to verify your account.',
+        [{ text: 'OK', onPress: () => router.replace('/auth/login' as any) }]
+      );
     } catch (error: any) {
       console.error('Signup error:', error);
-      Alert.alert('Signup Failed', getErrorMessage(error));
+      let errorMessage = 'Failed to create account';
+      
+      if (error.message.includes('already registered')) {
+        errorMessage = 'This email is already registered';
+      } else if (error.message.includes('Invalid email')) {
+        errorMessage = 'Please enter a valid email address';
+      } else if (error.message.includes('Database error')) {
+        errorMessage = 'Server error. Please contact support or try again later.';
+      } else {
+        errorMessage = error.message || 'Failed to create account';
+      }
+      
+      setError(errorMessage);
+      Alert.alert('Registration Failed', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -83,76 +77,75 @@ export default function Register() {
       style={styles.container}
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.wrapper}>
-          <View style={styles.content}>
-            <View style={styles.header}>
-              <View style={styles.logo}>
-                <Text style={styles.logoText}>F</Text>
-              </View>
-              <Text style={styles.title}>Join Framez</Text>
-              <Text style={styles.subtitle}>Create your account</Text>
+        <View style={styles.content}>
+          <View style={styles.header}>
+            <Text style={styles.title}>Create Account</Text>
+            <Text style={styles.subtitle}>Sign up to get started</Text>
+          </View>
+
+          {error ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
             </View>
+          ) : null}
 
-            <View style={styles.form}>
-              <TextInput
-                style={styles.input}
-                placeholder="Full Name"
-                placeholderTextColor="#9CA3AF"
-                value={displayName}
-                onChangeText={setDisplayName}
-                autoCapitalize="words"
-                editable={!loading}
-              />
+          <View style={styles.form}>
+            <TextInput
+              style={styles.input}
+              placeholder="Display Name"
+              placeholderTextColor="#9CA3AF"
+              value={displayName}
+              onChangeText={(text) => {
+                setDisplayName(text);
+                setError('');
+              }}
+              editable={!loading}
+            />
 
-              <TextInput
-                style={styles.input}
-                placeholder="Email"
-                placeholderTextColor="#9CA3AF"
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                editable={!loading}
-              />
+            <TextInput
+              style={styles.input}
+              placeholder="Email"
+              placeholderTextColor="#9CA3AF"
+              value={email}
+              onChangeText={(text) => {
+                setEmail(text);
+                setError('');
+              }}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              editable={!loading}
+            />
 
-              <TextInput
-                style={styles.input}
-                placeholder="Password"
-                placeholderTextColor="#9CA3AF"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                editable={!loading}
-              />
+            <TextInput
+              style={styles.input}
+              placeholder="Password (min. 6 characters)"
+              placeholderTextColor="#9CA3AF"
+              value={password}
+              onChangeText={(text) => {
+                setPassword(text);
+                setError('');
+              }}
+              secureTextEntry
+              editable={!loading}
+            />
 
-              <TextInput
-                style={styles.input}
-                placeholder="Confirm Password"
-                placeholderTextColor="#9CA3AF"
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry
-                editable={!loading}
-              />
+            <TouchableOpacity
+              style={[styles.button, loading && styles.buttonDisabled]}
+              onPress={handleSignup}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.buttonText}>Sign Up</Text>
+              )}
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.button, loading && styles.buttonDisabled]}
-                onPress={handleSignup}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.buttonText}>Sign Up</Text>
-                )}
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>Already have an account? </Text>
+              <TouchableOpacity onPress={() => router.push('/auth/login' as any)} disabled={loading}>
+                <Text style={styles.link}>Login</Text>
               </TouchableOpacity>
-
-              <View style={styles.footer}>
-                <Text style={styles.footerText}>Already have an account? </Text>
-                <TouchableOpacity onPress={() => router.push('/auth/login' as any)}>
-                  <Text style={styles.link}>Login</Text>
-                </TouchableOpacity>
-              </View>
             </View>
           </View>
         </View>
@@ -164,63 +157,54 @@ export default function Register() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F9FAFB',
   },
   scrollContent: {
     flexGrow: 1,
-  },
-  wrapper: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
   },
   content: {
     width: '100%',
     maxWidth: 700,
+    padding: 20,
   },
   header: {
+    marginBottom: 40,
     alignItems: 'center',
-    marginBottom: 48,
-  },
-  logo: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#8B5CF6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    shadowColor: '#8B5CF6',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  logoText: {
-    fontSize: 50,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
   },
   title: {
-    fontSize: 42,
+    fontSize: 32,
     fontWeight: 'bold',
-    color: '#1F2937',
+    color: '#8B5CF6',
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#6B7280',
+  },
+  errorContainer: {
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#EF4444',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 20,
+  },
+  errorText: {
+    color: '#DC2626',
+    fontSize: 14,
+    textAlign: 'center',
   },
   form: {
     width: '100%',
   },
   input: {
     backgroundColor: '#FFFFFF',
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 16,
-    padding: 18,
+    borderRadius: 12,
+    padding: 16,
     fontSize: 16,
     color: '#1F2937',
     marginBottom: 16,
@@ -228,7 +212,7 @@ const styles = StyleSheet.create({
   button: {
     backgroundColor: '#8B5CF6',
     padding: 18,
-    borderRadius: 16,
+    borderRadius: 12,
     alignItems: 'center',
     marginTop: 8,
     shadowColor: '#8B5CF6',
@@ -251,12 +235,12 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   footerText: {
+    fontSize: 14,
     color: '#6B7280',
-    fontSize: 15,
   },
   link: {
+    fontSize: 14,
     color: '#8B5CF6',
-    fontSize: 15,
     fontWeight: '600',
   },
 });
