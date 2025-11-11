@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseConfig';
 import { User } from '../../types';
 import { Session } from '@supabase/supabase-js';
+import { useRouter } from 'expo-router';
 
 interface AuthContextType {
   user: User | null;
@@ -18,6 +19,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -72,8 +74,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (authError) throw authError;
     if (!authData.user) throw new Error('Signup failed');
-
-    // The trigger will handle creating the user profile
   };
 
   const login = async (email: string, password: string) => {
@@ -89,11 +89,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-    setUser(null);
-    setSession(null);
-  };
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+  setUser(null);
+  setSession(null);
+  router.replace('/auth/login');
+};
 
   return (
     <AuthContext.Provider value={{ user, session, loading, login, signup, logout }}>
@@ -109,3 +110,5 @@ export const useAuth = () => {
   }
   return context;
 };
+
+export default AuthProvider;

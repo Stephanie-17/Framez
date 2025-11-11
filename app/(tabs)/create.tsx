@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -17,20 +17,14 @@ import { supabase } from '../services/supabaseConfig';
 import { useAuth } from '../context/AuthContext';
 import Icon from 'react-native-vector-icons/Feather';
 import { decode } from 'base64-arraybuffer';
-import { useRouter } from 'expo-router';
+import { useRouter, } from 'expo-router';
 
 export default function Create() {
   const [content, setContent] = useState('');
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
-  const router = useRouter();
 
-  useEffect(() => {
-    if (!user) {
-      router.replace('/auth/login' as any);
-    }
-  }, [user,router]);
 
   if (!user) {
     return (
@@ -60,60 +54,75 @@ export default function Create() {
     }
   };
 
-  const takePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+  
+const uploadImage = async (uri: string): Promise<string> => {
+  try {
+    console.log('🔍 [UPLOAD] Starting upload with URI:', uri);
+
+    // Use expo-file-system for more reliable file handling
+    const response = await fetch(uri);
+    const blob = await response.blob();
     
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Please grant camera access');
-      return;
+    console.log('🔍 [UPLOAD] Blob size:', blob.size, 'type:', blob.type);
+
+    if (blob.size === 0) {
+      throw new Error('Received empty blob from image picker');
     }
 
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.8,
+    // Convert blob to base64 properly
+    const reader = new FileReader();
+    const base64Promise = new Promise<string>((resolve, reject) => {
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          // Remove the data URL prefix
+          const base64 = reader.result.split(',')[1];
+          resolve(base64);
+        } else {
+          reject(new Error('Failed to convert blob to base64'));
+        }
+      };
+      reader.onerror = () => reject(new Error('FileReader error'));
+      reader.readAsDataURL(blob);
     });
 
-    if (!result.canceled) {
-      setImageUri(result.assets[0].uri);
+    const base64 = await base64Promise;
+    console.log('🔍 [UPLOAD] Base64 length:', base64.length);
+
+    if (!base64) {
+      throw new Error('Base64 conversion failed');
     }
-  };
 
-  const uploadImage = async (uri: string): Promise<string> => {
-    try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const arrayBuffer = await new Response(blob).arrayBuffer();
-      const base64 = decode(arrayBuffer as any);
+    // File extension
+    const fileExt = 'jpg'; // Force jpg for consistency
+    const fileName = `${user?.id}/posts/${Date.now()}.${fileExt}`;
 
-      const uriParts = uri.split('.');
-      const fileExt = uriParts[uriParts.length - 1].toLowerCase() || 'jpg';
-      const fileName = `${user?.id}/${Date.now()}.${fileExt}`;
+    console.log('🔍 [UPLOAD] Uploading to:', fileName);
 
-      let contentType = 'image/jpeg';
-      if (fileExt === 'png') contentType = 'image/png';
-      else if (fileExt === 'webp') contentType = 'image/webp';
-      else if (fileExt === 'gif') contentType = 'image/gif';
+    const { data, error } = await supabase.storage
+      .from('post-images')
+      .upload(fileName, decode(base64), {
+        contentType: 'image/jpeg',
+      });
 
-      const { data, error } = await supabase.storage
-        .from('post-images')
-        .upload(fileName, base64, {
-          contentType,
-        });
-
-      if (error) throw error;
-
-      const { data: publicUrlData } = supabase.storage
-        .from('post-images')
-        .getPublicUrl(data.path);
-
-      return publicUrlData.publicUrl;
-    } catch (error: any) {
-      console.error('Upload error:', error);
-      throw new Error('Failed to upload image');
+    if (error) {
+      console.error('🔍 [UPLOAD] Supabase error:', error);
+      throw error;
     }
-  };
 
+    console.log('🔍 [UPLOAD] Upload successful');
+
+    const { data: publicUrlData } = supabase.storage
+      .from('post-images')
+      .getPublicUrl(data.path);
+
+    console.log('🔍 [UPLOAD] Final URL:', publicUrlData.publicUrl);
+
+    return publicUrlData.publicUrl;
+  } catch (error: any) {
+    console.error('🔍 [UPLOAD] Upload failed:', error);
+    throw new Error('Failed to upload image: ' + error.message);
+  }
+};
   const handlePost = async () => {
     if (!content.trim() && !imageUri) {
       Alert.alert('Error', 'Please add some content or an image');
@@ -130,11 +139,13 @@ export default function Create() {
     try {
       let imageUrl = null;
 
-      if (imageUri) {
-        console.log('Uploading image...');
-        imageUrl = await uploadImage(imageUri);
-        console.log('Image uploaded:', imageUrl);
-      }
+    if (imageUri) {
+      console.log('Original image URI:', imageUri); // Debug log
+      console.log('Uploading image...');
+      imageUrl = await uploadImage(imageUri);
+      console.log('Final image URL:', imageUrl); // Debug log
+    }
+
 
       const newPost = {
         user_id: user.id,
@@ -142,8 +153,6 @@ export default function Create() {
         user_avatar: user.photo_url,
         content: content.trim() || null,
         image_url: imageUrl,
-        likes: 0,
-        liked_by: [],
         created_at: new Date().toISOString(),
       };
 
@@ -185,57 +194,56 @@ export default function Create() {
       style={styles.container}
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Create Post</Text>
-          <Text style={styles.headerNote}>Supports: JPG, PNG, WebP, GIF</Text>
-        </View>
-
-        <View style={styles.content}>
-          <TextInput
-            style={styles.textInput}
-            placeholder="What's on your mind?"
-            placeholderTextColor="#9CA3AF"
-            value={content}
-            onChangeText={setContent}
-            multiline
-            maxLength={500}
-          />
-
-          {imageUri && (
-            <View style={styles.imagePreview}>
-              <Image source={{ uri: imageUri }} style={styles.previewImage} />
-              <TouchableOpacity
-                style={styles.removeButton}
-                onPress={() => setImageUri(null)}
-              >
-                <Icon name="x" color="#FFFFFF" size={20} />
-              </TouchableOpacity>
-            </View>
-          )}
-
-          <View style={styles.actions}>
-            <TouchableOpacity style={styles.actionButton} onPress={pickImage}>
-              <Icon name="image" color="#8B5CF6" size={24} />
-              <Text style={styles.actionText}>Gallery</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionButton} onPress={takePhoto}>
-              <Icon name="camera" color="#8B5CF6" size={24} />
-              <Text style={styles.actionText}>Camera</Text>
-            </TouchableOpacity>
+        <View style={styles.contentWrapper}>
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Create Post</Text>
+            <Text style={styles.headerNote}>Supports: JPG, PNG, WebP, GIF</Text>
           </View>
 
-          <TouchableOpacity
-            style={[styles.postButton, loading && styles.postButtonDisabled]}
-            onPress={handlePost}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.postButtonText}>Post</Text>
+          <View style={styles.content}>
+            <TextInput
+              style={styles.textInput}
+              placeholder="What's on your mind?"
+              placeholderTextColor="#9CA3AF"
+              value={content}
+              onChangeText={setContent}
+              multiline
+              maxLength={500}
+            />
+
+            {imageUri && (
+              <View style={styles.imagePreview}>
+                <Image source={{ uri: imageUri }} style={styles.previewImage} />
+                <TouchableOpacity
+                  style={styles.removeButton}
+                  onPress={() => setImageUri(null)}
+                >
+                  <Icon name="x" color="#FFFFFF" size={20} />
+                </TouchableOpacity>
+              </View>
             )}
-          </TouchableOpacity>
+
+            <View style={styles.actions}>
+              <TouchableOpacity style={styles.actionButton} onPress={pickImage}>
+                <Icon name="image" color="#8B5CF6" size={24} />
+                <Text style={styles.actionText}>Gallery</Text>
+              </TouchableOpacity>
+
+              
+            </View>
+
+            <TouchableOpacity
+              style={[styles.postButton, loading && styles.postButtonDisabled]}
+              onPress={handlePost}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.postButtonText}>Post</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -252,10 +260,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#F9FAFB',
+     width: '100%',
+    maxWidth: 700,
+    
   },
   scrollContent: {
     flexGrow: 1,
+    width: '100%',
+    alignItems: 'center',
   },
+  contentWrapper: {
+  width: '100%',
+  maxWidth: 700,
+  alignSelf: 'center', // Add this
+  flex: 1, // Add this
+},
   header: {
     backgroundColor: '#FFFFFF',
     paddingTop: 50,
@@ -337,11 +356,9 @@ const styles = StyleSheet.create({
     padding: 18,
     borderRadius: 16,
     alignItems: 'center',
-    shadowColor: '#8B5CF6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    boxShadow: '0 4px 8px rgba(139, 92, 246, 0.3)',
+elevation: 4, // Keep for Android
+   
   },
   postButtonDisabled: {
     opacity: 0.6,

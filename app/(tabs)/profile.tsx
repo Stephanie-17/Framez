@@ -8,50 +8,30 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
+  useWindowDimensions 
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabaseConfig';
 import { Post } from '../../types';
 import { useRouter } from 'expo-router';
 import Icon from 'react-native-vector-icons/Feather';
+import { decode } from 'base64-arraybuffer';
+
+
 
 export default function Profile() {
   const { user, logout } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [totalLikes, setTotalLikes] = useState(0);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [imageLoading, setImageLoading] = useState<{[key: string]: boolean}>({});
+
   const router = useRouter();
-
-  useEffect(() => {
-    if (!user) {
-      // Use setTimeout to ensure navigation happens after mount
-      const timer = setTimeout(() => {
-        router.replace('/auth/login' as any);
-      }, 0);
-      return () => clearTimeout(timer);
-    }
-    
-    fetchUserPosts();
-    
-    // Real-time subscription for posts
-    const subscription = supabase
-      .channel('user_posts_channel')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'posts',
-        filter: `user_id=eq.${user.id}`
-      }, () => {
-        fetchUserPosts();
-      })
-      .subscribe();
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [user]);
-
+ const { width } = useWindowDimensions();
+  const isLargeScreen = width > 768;
   const fetchUserPosts = useCallback(async () => {
     if (!user) return;
 
@@ -75,8 +55,7 @@ export default function Profile() {
       console.log('Posts fetched:', data?.length || 0);
       setPosts(data as Post[]);
       
-      const likes = (data as Post[]).reduce((sum, post) => sum + post.likes, 0);
-      setTotalLikes(likes);
+      
     } catch (error: any) {
       console.error('Error fetching user posts:', error);
       setError(error.message || 'Failed to load posts');
@@ -93,58 +72,203 @@ export default function Profile() {
     }
   }, [user]);
 
-  const handleLogout = async () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await logout();
-              router.replace('/auth/login' as any);
-            } catch (error: any) {
-              Alert.alert('Error', error.message);
-            }
-          },
-        },
-      ]
-    );
-  };
+  useEffect(() => {
+  if (user === null && !loading) {
+    const timer = setTimeout(() => {
+      router.replace('/auth/login' as any);
+    }, 100);
+    return () => clearTimeout(timer);
+  }
+}, [user, router, loading]);
 
-  const renderPost = ({ item }: { item: Post }) => (
+useEffect(() => {
+  if (user) {
+    fetchUserPosts();
+    
+    const subscription = supabase
+      .channel('user_posts_channel')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'posts',
+        filter: `user_id=eq.${user.id}`
+      }, () => {
+        fetchUserPosts();
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }
+}, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+ const changeProfilePicture = async () => {
+  if (!user) return;
+
+  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  
+  if (status !== 'granted') {
+    Alert.alert('Permission needed', 'Please grant access to your photos');
+    return;
+  }
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.8,
+  });
+
+  if (result.canceled) return;
+
+  setUploadingPhoto(true);
+
+  try {
+    console.log('📸 Starting profile picture upload...');
+
+    const uri = result.assets[0].uri;
+    
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    
+    console.log('📸 Blob size:', blob.size, 'type:', blob.type);
+
+    // Convert blob to base64 properly
+    const base64 = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64data = reader.result as string;
+        const base64Content = base64data.split(',')[1];
+        resolve(base64Content);
+      };
+      reader.readAsDataURL(blob);
+    });
+
+    console.log('📸 Base64 length:', base64.length);
+
+    const fileExt = 'jpg';
+    const fileName = `${user.id}/profile/avatar.${fileExt}`;
+
+    console.log('📸 Uploading to:', fileName);
+
+    // 🗑️ DELETE THE CORRUPTED FILE FIRST - ADD THIS SECTION
+    try {
+      await supabase.storage
+        .from('post-images')
+        .remove([fileName]);
+      console.log('🗑️ Deleted existing corrupted file');
+    } catch (deleteError) {
+      console.log('ℹ️ No existing file to delete or delete failed');
+    }
+
+    // ⬆️ DELETE CODE GOES ABOVE THE UPLOAD
+
+    // Upload as base64 (most reliable for Supabase)
+    const { error: uploadError } = await supabase.storage
+      .from('post-images')
+      .upload(fileName, decode(base64), {
+        contentType: 'image/jpeg',
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error('📸 Upload error:', uploadError);
+      throw uploadError;
+    }
+
+    // ... rest of your code remains the same
+    const { data: urlData } = supabase.storage
+      .from('post-images')
+      .getPublicUrl(fileName);
+
+    console.log('📸 Got public URL:', urlData.publicUrl);
+
+    // Update user's profile picture
+    const { error: updateUserError } = await supabase
+      .from('users')
+      .update({ 
+        photo_url: urlData.publicUrl
+      })
+      .eq('id', user.id);
+
+    if (updateUserError) throw updateUserError;
+
+    // Also update all user's posts with new avatar
+    const { error: updatePostsError } = await supabase
+      .from('posts')
+      .update({ 
+        user_avatar: urlData.publicUrl
+      })
+      .eq('user_id', user.id);
+
+    if (updatePostsError) {
+      console.warn('⚠️ Could not update posts, but profile was updated');
+    }
+
+    Alert.alert('Success', 'Profile picture updated!');
+    
+    setTimeout(() => {
+      fetchUserPosts();
+    }, 1000);
+    
+  } catch (error: any) {
+    console.error('❌ Error updating profile picture:', error);
+    Alert.alert('Error', 'Failed to update profile picture: ' + error.message);
+  } finally {
+    setUploadingPhoto(false);
+  }
+};
+ const handleLogout = () => {
+  setShowLogoutModal(true);
+};
+
+
+
+const renderPost = ({ item }: { item: Post }) => {
+  return (
     <View style={styles.gridItem}>
-      {item.image_url ? (
-        <Image source={{ uri: item.image_url }} style={styles.gridImage} />
-      ) : (
-        <View style={styles.gridPlaceholder}>
-          <Text style={styles.gridPlaceholderText} numberOfLines={3}>
-            {item.content}
-          </Text>
-        </View>
-      )}
+      <View style={[styles.postContainer,{ 
+          maxWidth: isLargeScreen ? 223 : 150,
+          maxHeight: isLargeScreen ? 226 : 158 
+        }]}>
+        {item.image_url ? (
+          <View style={styles.imageContainer}>
+            <Image 
+              source={{ uri: item.image_url }} 
+              style={styles.gridImage}
+            />
+          </View>
+        ) : (
+          <View style={styles.gridPlaceholder}>
+            <Text style={styles.gridPlaceholderText} numberOfLines={3}>
+              {item.content}
+            </Text>
+          </View>
+        )}
+        {item.content && item.image_url && (
+          <View style={styles.textContainer}>
+            <Text style={styles.postText} numberOfLines={2}>
+              {item.content}
+            </Text>
+          </View>
+        )}
+      </View>
     </View>
   );
+};
+  if (!user && loading) {
+  return (
+    <View style={styles.centerContainer}>
+      <ActivityIndicator size="large" color="#8B5CF6" />
+    </View>
+  );
+}
 
-  if (!user) {
-    return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#8B5CF6" />
-      </View>
-    );
-  }
+if (!user) {
+  return null; // Don't show anything while redirecting
+}
 
-  if (loading) {
-    return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#8B5CF6" />
-        <Text style={styles.loadingText}>Loading your profile...</Text>
-      </View>
-    );
-  }
+  
 
   if (error) {
     return (
@@ -158,40 +282,67 @@ export default function Profile() {
     );
   }
 
+ 
+
   return (
     <View style={styles.container}>
       <View style={styles.contentWrapper}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Profile</Text>
           <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-            <Icon name="log-out" color="#EF4444" size={24} />
+            <Icon name="log-out" color="#fff" size={24} />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.profileSection}>
-          <Image
-            source={{ uri: user.photo_url || 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png' }}
-            style={styles.profileImage}
-          />
-          <Text style={styles.displayName}>{user.display_name}</Text>
-          <Text style={styles.email}>{user.email}</Text>
-
-          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{posts.length}</Text>
-              <Text style={styles.statLabel}>Posts</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{totalLikes}</Text>
-              <Text style={styles.statLabel}>Likes</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>0</Text>
-              <Text style={styles.statLabel}>Following</Text>
-            </View>
-          </View>
-        </View>
-
+       <View style={styles.profileSection}>
+     <View style={styles.profileImageContainer}>
+  {user?.photo_url ? (
+    <Image
+  source={{ 
+    uri: user?.photo_url 
+      ? `${user.photo_url}?t=${Date.now()}` // Add cache busting
+      : `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.display_name || 'User')}&size=200&background=8B5CF6&color=fff`
+  }}
+  style={styles.profileImage}
+  onLoadStart={() => console.log('🔄 Profile image load STARTED')}
+  onLoad={() => console.log('✅ Profile image load SUCCESS')}
+  onLoadEnd={() => console.log('🏁 Profile image load ENDED')}
+  onError={(e) => {
+    console.log('❌ Profile image load ERROR:', e.nativeEvent.error);
+    console.log('📸 Failed URL:', user?.photo_url);
+  }}
+/>
+  ) : null}
+  
+  {/* Always show fallback behind the image */}
+  <View style={styles.fallbackAvatar}>
+    <Text style={styles.fallbackText}>
+      {user?.display_name?.substring(0, 2).toUpperCase() || 'US'}
+    </Text>
+  </View>
+  
+  <TouchableOpacity 
+    style={styles.editPhotoButton}
+    onPress={changeProfilePicture}
+    disabled={uploadingPhoto}
+  >
+    {uploadingPhoto ? (
+      <ActivityIndicator size="small" color="#FFFFFF" />
+    ) : (
+      <Icon name="camera" color="#FFFFFF" size={16} />
+    )}
+  </TouchableOpacity>
+</View>
+  
+  <Text style={styles.displayName}>{user.display_name}</Text>
+  <Text style={styles.email}>{user.email}</Text>
+  
+  {/* Posts count moved here */}
+  <View style={styles.postsCountContainer}>
+    <Text style={styles.postsCount}>{posts.length}</Text>
+    <Text style={styles.postsCountLabel}>Posts</Text>
+  </View>
+</View>
         <View style={styles.postsHeader}>
           <Text style={styles.postsTitle}>Your Posts</Text>
         </View>
@@ -210,6 +361,36 @@ export default function Profile() {
           }
         />
       </View>
+
+      {showLogoutModal && (
+  <View style={styles.modalOverlay}>
+    <View style={styles.modalContent}>
+      <Text style={styles.modalTitle}>Logout</Text>
+      <Text style={styles.modalMessage}>Are you sure you want to logout?</Text>
+      
+      <View style={styles.modalButtons}>
+        <TouchableOpacity 
+          style={[styles.modalButton, styles.cancelButton]}
+          onPress={() => setShowLogoutModal(false)}
+        >
+          <Text style={styles.cancelButtonText}>Cancel</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={[styles.modalButton, styles.logoutButton]}
+          onPress={() => {
+            setShowLogoutModal(false);
+            logout().catch((error: any) => {
+              Alert.alert('Error', error.message);
+            });
+          }}
+        >
+          <Text style={styles.logoutButtonText}>Logout</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </View>
+)}
     </View>
   );
 }
@@ -272,9 +453,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#1F2937',
   },
-  logoutButton: {
-    padding: 8,
-  },
   profileSection: {
     backgroundColor: '#FFFFFF',
     paddingVertical: 32,
@@ -283,13 +461,47 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
   },
+  profileImageContainer: {
+    position: 'relative',
+    marginBottom: 16,
+  },
   profileImage: {
     width: 100,
     height: 100,
     borderRadius: 50,
-    marginBottom: 16,
     borderWidth: 3,
     borderColor: '#8B5CF6',
+  },
+ 
+fallbackAvatar: {
+  width: 100,
+  height: 100,
+  borderRadius: 50,
+  backgroundColor: '#8B5CF6',
+  justifyContent: 'center',
+  alignItems: 'center',
+  borderWidth: 3,
+  borderColor: '#8B5CF6',
+  position: 'absolute',
+  zIndex: -1, // Behind the image
+},
+fallbackText: {
+  color: '#FFFFFF',
+  fontSize: 24,
+  fontWeight: 'bold',
+},
+  editPhotoButton: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#8B5CF6',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   displayName: {
     fontSize: 24,
@@ -297,29 +509,28 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     marginBottom: 4,
   },
+
   email: {
     fontSize: 14,
     color: '#6B7280',
     marginBottom: 24,
   },
-  statsContainer: {
-    flexDirection: 'row',
-    width: '100%',
-    justifyContent: 'space-around',
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#8B5CF6',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 4,
-  },
+  postsCountContainer: {
+  flexDirection: 'column',
+  alignItems: 'center',
+  marginTop: 16,
+},
+postsCount: {
+  fontSize: 18,
+  fontWeight: 'bold',
+  color: '#8B5CF6',
+  marginRight: 8,
+},
+postsCountLabel: {
+  fontSize: 16,
+  color: '#6B7280',
+},
+  
   postsHeader: {
     backgroundColor: '#FFFFFF',
     paddingVertical: 16,
@@ -335,29 +546,81 @@ const styles = StyleSheet.create({
   gridContainer: {
     padding: 2,
   },
-  gridItem: {
-    flex: 1 / 3,
-    aspectRatio: 1,
-    padding: 2,
-  },
-  gridImage: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#F3F4F6',
-  },
-  gridPlaceholder: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#8B5CF6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 8,
-  },
-  gridPlaceholderText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    textAlign: 'center',
-  },
+gridItem: {
+  flex: 1 / 3,
+  aspectRatio: 1,
+  padding: 2,
+},
+postContainer: {
+      width: '100%',
+      height: '100%',
+      backgroundColor: '#FFFFFF',
+      borderRadius: 8,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: '#E5E7EB',
+    
+    },
+
+
+imageContainer: {
+  flex: 1,
+},
+gridImage: {
+  width: '100%',
+  height: '100%',
+  resizeMode: 'cover',
+},
+textContainer: {
+  paddingHorizontal: 6,
+  paddingVertical: 4,
+  backgroundColor: '#FFFFFF',
+  borderTopWidth: 1,
+  borderTopColor: '#E5E7EB',
+  minHeight: 10,
+  justifyContent: 'center',
+},
+postText: {
+  fontSize: 16,
+  color: '#374151',
+  textAlign: 'center',
+  lineHeight: 19,
+},
+gridPlaceholder: {
+  width: '100%',
+  height: '100%',
+  backgroundColor: '#8B5CF6',
+  justifyContent: 'center',
+  alignItems: 'center',
+  padding: 8,
+},
+gridPlaceholderText: {
+  color: '#FFFFFF',
+  fontSize: 12,
+  textAlign: 'center',
+  fontWeight: '500',
+},
+
+
+
+
+
+
+ 
+
+loadingContainer: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  justifyContent: 'center',
+  alignItems: 'center',
+  backgroundColor: '#F3F4F6',
+  zIndex: 1,
+},
+
+ 
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -374,4 +637,76 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#9CA3AF',
   },
+  modalOverlay: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  justifyContent: 'center',
+  alignItems: 'center',
+  zIndex: 1000,
+},
+modalContent: {
+  backgroundColor: '#FFFFFF',
+  borderRadius: 16,
+  padding: 24,
+  margin: 20,
+  width: '80%',
+  maxWidth: 400,
+  alignItems: 'center',
+},
+modalTitle: {
+  fontSize: 20,
+  fontWeight: 'bold',
+  color: '#1F2937',
+  marginBottom: 8,
+},
+modalMessage: {
+  fontSize: 16,
+  color: '#6B7280',
+  textAlign: 'center',
+  marginBottom: 24,
+},
+modalButtons: {
+  flexDirection: 'row',
+  gap: 12,
+  width: '100%',
+},
+modalButton: {
+  flex: 1,
+  paddingVertical: 12,
+  paddingHorizontal: 16,
+  borderRadius: 12,
+  alignItems: 'center',
+},
+cancelButton: {
+  backgroundColor: '#F3F4F6',
+  borderWidth: 1,
+  borderColor: '#D1D5DB',
+},
+logoutButton: {
+  backgroundColor: '#EF4444',
+},
+cancelButtonText: {
+  color: '#374151',
+  fontSize: 16,
+  fontWeight: '600',
+},
+logoutButtonText: {
+  color: '#FFFFFF',
+  fontSize: 16,
+  fontWeight: '600',
+},
+debugText: {
+  position: 'absolute',
+  top: 4,
+  left: 4,
+  backgroundColor: 'rgba(0,0,0,0.7)',
+  color: 'white',
+  fontSize: 8,
+  padding: 2,
+},
 });
+
