@@ -11,12 +11,10 @@ import {
 import { supabase } from '../services/supabaseConfig';
 import { Post } from '../../types';
 
-
 export default function Feed() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  
 
   useEffect(() => {
     fetchPosts();
@@ -50,9 +48,6 @@ export default function Feed() {
     }
   };
 
-  
-  
-
   const onRefresh = () => {
     setRefreshing(true);
     fetchPosts();
@@ -69,52 +64,44 @@ export default function Feed() {
     return `${Math.floor(diffInSeconds / 86400)}d ago`;
   };
 
- const renderPost = ({ item }: { item: Post }) => {
-  console.log('👤 [FEED DEBUG] Post user:', {
-  userName: item.user_name,
-  userAvatar: item.user_avatar,
-  hasAvatar: !!item.user_avatar
-});
-  return (
-    <View style={styles.postCard}>
-      <View style={styles.postHeader}>
-      <Image
-  source={{ 
-    uri: item.user_avatar 
-      ? `${item.user_avatar}?t=${Date.now()}` // Add cache busting
-      : `https://ui-avatars.com/api/?name=${encodeURIComponent(item.user_name || 'User')}&size=80&background=8B5CF6&color=fff`
-  }}
-  style={styles.avatar}
-/>
-        <View style={styles.postHeaderText}>
-          <Text style={styles.userName}>{item.user_name}</Text>
-          <Text style={styles.timestamp}>{formatTime(item.created_at)}</Text>
-        </View>
-      </View>
-
-      {item.content && (
-        <View style={styles.postContentTop}>
-          <Text style={styles.contentText}>
-            {item.content}
-          </Text>
-        </View>
-      )}
-
-      {item.image_url && (
-        <View style={styles.imageContainer}>
+  const renderPost = ({ item }: { item: Post }) => {
+    return (
+      <View style={styles.postCard}>
+        <View style={styles.postHeader}>
           <Image
-            source={{ uri: item.image_url }}
-            style={styles.postImage}
-            resizeMode="cover"
-            onError={(error) => {
-              console.log('🖼️ [FEED] Load error for:', item.id,error);
+            source={{ 
+              uri: item.user_avatar 
+                ? `${item.user_avatar}?t=${Date.now()}`
+                : `https://ui-avatars.com/api/?name=${encodeURIComponent(item.user_name || 'User')}&size=80&background=8B5CF6&color=fff`
             }}
+            style={styles.avatar}
           />
+          <View style={styles.postHeaderText}>
+            <Text style={styles.userName}>{item.user_name}</Text>
+            <Text style={styles.timestamp}>{formatTime(item.created_at)}</Text>
+          </View>
         </View>
-      )}
-    </View>
-  );
-};
+
+        {item.content && (
+          <View style={styles.postContentTop}>
+            <Text style={styles.contentText}>
+              {item.content}
+            </Text>
+          </View>
+        )}
+
+        {item.image_url && (
+          <View style={styles.imageContainer}>
+            <Image
+              source={{ uri: item.image_url }}
+              style={styles.postImage}
+              resizeMode="cover"
+            />
+          </View>
+        )}
+      </View>
+    );
+  };
 
   if (loading) {
     return (
@@ -188,7 +175,7 @@ const styles = StyleSheet.create({
   },
   feedContainer: {
     paddingVertical: 8,
-     paddingHorizontal: 16,
+    paddingHorizontal: 16,
   },
   postCard: {
     backgroundColor: '#FFFFFF',
@@ -232,51 +219,17 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 400,
   },
-  imageLoadingContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    zIndex: 1,
-  },
   postImage: {
     width: '100%',
     height: 400,
     backgroundColor: '#F3F4F6',
-    borderRadius:10
-  },
-  postActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  actionText: {
-    marginLeft: 6,
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  likedText: {
-    color: '#EF4444',
+    borderRadius: 10
   },
   contentText: {
     fontSize: 17,
     color: '#1F2937',
     lineHeight: 20,
     marginStart: 50
-  },
-  contentUserName: {
-    fontWeight: '600',
   },
   emptyContainer: {
     alignItems: 'center',

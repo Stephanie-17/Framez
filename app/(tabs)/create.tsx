@@ -17,14 +17,13 @@ import { supabase } from '../services/supabaseConfig';
 import { useAuth } from '../context/AuthContext';
 import Icon from 'react-native-vector-icons/Feather';
 import { decode } from 'base64-arraybuffer';
-import { useRouter, } from 'expo-router';
+
 
 export default function Create() {
   const [content, setContent] = useState('');
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
-
 
   if (!user) {
     return (
@@ -54,75 +53,54 @@ export default function Create() {
     }
   };
 
-  
-const uploadImage = async (uri: string): Promise<string> => {
-  try {
-    console.log('🔍 [UPLOAD] Starting upload with URI:', uri);
+  const uploadImage = async (uri: string): Promise<string> => {
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
 
-    // Use expo-file-system for more reliable file handling
-    const response = await fetch(uri);
-    const blob = await response.blob();
-    
-    console.log('🔍 [UPLOAD] Blob size:', blob.size, 'type:', blob.type);
+      if (blob.size === 0) {
+        throw new Error('Received empty blob from image picker');
+      }
 
-    if (blob.size === 0) {
-      throw new Error('Received empty blob from image picker');
-    }
-
-    // Convert blob to base64 properly
-    const reader = new FileReader();
-    const base64Promise = new Promise<string>((resolve, reject) => {
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          // Remove the data URL prefix
-          const base64 = reader.result.split(',')[1];
-          resolve(base64);
-        } else {
-          reject(new Error('Failed to convert blob to base64'));
-        }
-      };
-      reader.onerror = () => reject(new Error('FileReader error'));
-      reader.readAsDataURL(blob);
-    });
-
-    const base64 = await base64Promise;
-    console.log('🔍 [UPLOAD] Base64 length:', base64.length);
-
-    if (!base64) {
-      throw new Error('Base64 conversion failed');
-    }
-
-    // File extension
-    const fileExt = 'jpg'; // Force jpg for consistency
-    const fileName = `${user?.id}/posts/${Date.now()}.${fileExt}`;
-
-    console.log('🔍 [UPLOAD] Uploading to:', fileName);
-
-    const { data, error } = await supabase.storage
-      .from('post-images')
-      .upload(fileName, decode(base64), {
-        contentType: 'image/jpeg',
+      const reader = new FileReader();
+      const base64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          if (typeof reader.result === 'string') {
+            const base64 = reader.result.split(',')[1];
+            resolve(base64);
+          } else {
+            reject(new Error('Failed to convert blob to base64'));
+          }
+        };
+        reader.onerror = () => reject(new Error('FileReader error'));
+        reader.readAsDataURL(blob);
       });
 
-    if (error) {
-      console.error('🔍 [UPLOAD] Supabase error:', error);
-      throw error;
+      if (!base64) {
+        throw new Error('Base64 conversion failed');
+      }
+
+      const fileExt = 'jpg';
+      const fileName = `${user?.id}/posts/${Date.now()}.${fileExt}`;
+
+      const { data, error } = await supabase.storage
+        .from('post-images')
+        .upload(fileName, decode(base64), {
+          contentType: 'image/jpeg',
+        });
+
+      if (error) throw error;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('post-images')
+        .getPublicUrl(data.path);
+
+      return publicUrlData.publicUrl;
+    } catch (error: any) {
+      throw new Error('Failed to upload image: ' + error.message);
     }
+  };
 
-    console.log('🔍 [UPLOAD] Upload successful');
-
-    const { data: publicUrlData } = supabase.storage
-      .from('post-images')
-      .getPublicUrl(data.path);
-
-    console.log('🔍 [UPLOAD] Final URL:', publicUrlData.publicUrl);
-
-    return publicUrlData.publicUrl;
-  } catch (error: any) {
-    console.error('🔍 [UPLOAD] Upload failed:', error);
-    throw new Error('Failed to upload image: ' + error.message);
-  }
-};
   const handlePost = async () => {
     if (!content.trim() && !imageUri) {
       Alert.alert('Error', 'Please add some content or an image');
@@ -139,13 +117,9 @@ const uploadImage = async (uri: string): Promise<string> => {
     try {
       let imageUrl = null;
 
-    if (imageUri) {
-      console.log('Original image URI:', imageUri); // Debug log
-      console.log('Uploading image...');
-      imageUrl = await uploadImage(imageUri);
-      console.log('Final image URL:', imageUrl); // Debug log
-    }
-
+      if (imageUri) {
+        imageUrl = await uploadImage(imageUri);
+      }
 
       const newPost = {
         user_id: user.id,
@@ -156,28 +130,18 @@ const uploadImage = async (uri: string): Promise<string> => {
         created_at: new Date().toISOString(),
       };
 
-      console.log('Creating post:', newPost);
-
-      const { data, error } = await supabase
+      const {  error } = await supabase
         .from('posts')
         .insert([newPost])
         .select();
 
-      if (error) {
-        console.error('Supabase error:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      console.log('Post created successfully:', data);
-      
       setContent('');
       setImageUri(null);
       
-      Alert.alert('Success', 'Post created successfully!', [
-        { text: 'OK', onPress: () => console.log('Post success acknowledged') }
-      ]);
+      Alert.alert('Success', 'Post created successfully!');
     } catch (error: any) {
-      console.error('Error creating post:', error);
       Alert.alert(
         'Error', 
         error.message || 'Failed to create post. Please check your connection and try again.',
@@ -228,8 +192,6 @@ const uploadImage = async (uri: string): Promise<string> => {
                 <Icon name="image" color="#8B5CF6" size={24} />
                 <Text style={styles.actionText}>Gallery</Text>
               </TouchableOpacity>
-
-              
             </View>
 
             <TouchableOpacity
@@ -260,9 +222,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#F9FAFB',
-     width: '100%',
+    width: '100%',
     maxWidth: 700,
-    
   },
   scrollContent: {
     flexGrow: 1,
@@ -270,11 +231,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   contentWrapper: {
-  width: '100%',
-  maxWidth: 700,
-  alignSelf: 'center', // Add this
-  flex: 1, // Add this
-},
+    width: '100%',
+    maxWidth: 700,
+    alignSelf: 'center',
+    flex: 1,
+  },
   header: {
     backgroundColor: '#FFFFFF',
     paddingTop: 50,
@@ -357,8 +318,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     boxShadow: '0 4px 8px rgba(139, 92, 246, 0.3)',
-elevation: 4, // Keep for Android
-   
+    elevation: 4,
   },
   postButtonDisabled: {
     opacity: 0.6,
