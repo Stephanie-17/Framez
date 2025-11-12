@@ -1,50 +1,148 @@
-# Welcome to your Expo app 👋
+# Framez - Social Media App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Framez is a mobile social application built with React Native and Expo that allows users to share posts with text and images. Built for the HNG 13 Frontend Track Stage Four submission.
 
-## Get started
+## 🚀 Features
 
-1. Install dependencies
+- **Authentication**: Secure signup, login, and logout with Supabase
+- **Posts**: Create posts with text and/or images
+- **Real-time Feed**: Chronological feed of all posts with automatic updates
+- **User Profiles**: View your profile with all your posts
+- **Image Upload**: Upload profile pictures and post images
+- **Responsive Design**: Clean, Instagram-inspired UI that works on all screen sizes
 
+## 🛠️ Tech Stack
+
+- **Frontend**: React Native, Expo
+- **Backend**: Supabase (Authentication & Database)
+- **Storage**: Supabase Storage for images
+- **State Management**: React Context API
+- **Navigation**: Expo Router
+
+## 📱 Screens
+
+- **Feed**: View posts from all users in real-time
+- **Create**: Create new posts with text and images
+- **Profile**: View your profile, posts, and update profile picture
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Node.js (v18 or higher)
+- Expo CLI
+- iOS Simulator or Android Emulator (or Expo Go app)
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone <your-repository-url>
+   cd framez
+   ```
+
+2. **Install dependencies**
    ```bash
    npm install
    ```
 
-2. Start the app
+3. **Environment Setup**
+   Create a `.env` file in the root directory:
+   ```env
+   EXPO_PUBLIC_SUPABASE_URL=your_supabase_project_url
+   EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+   ```
 
+4. **Start the development server**
    ```bash
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+5. **Run on your device**
+   - Scan the QR code with Expo Go (Android) or Camera (iOS)
+   - Or press `i` for iOS simulator / `a` for Android emulator
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## 🔧 Supabase Setup
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+1. Create a new project at [Supabase](https://supabase.com)
+2. Enable Authentication with Email
+3. Create a `posts` table:
+   ```sql
+   CREATE TABLE posts (
+     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+     user_id UUID REFERENCES auth.users(id),
+     user_name TEXT,
+     user_avatar TEXT,
+     content TEXT,
+     image_url TEXT,
+     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+   );
+   ```
+4. Create a `users` table:
+   ```sql
+   CREATE TABLE users (
+     id UUID REFERENCES auth.users(id) PRIMARY KEY,
+     display_name TEXT,
+     email TEXT,
+     photo_url TEXT,
+     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+   );
+   ```
+5. Create a storage bucket called `post-images` with public access
 
-## Get a fresh project
+## 📁 Project Structure
 
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+app/
+├── (tabs)/
+│   ├── index.tsx          # Feed screen
+│   ├── create.tsx         # Create post screen
+│   └── profile.tsx        # Profile screen
+├── auth/
+│   ├── login.tsx          # Login screen
+│   └── register.tsx       # Register screen
+├── _layout.tsx            # Root layout with auth guard
+├── context/
+│   └── AuthContext.tsx    # Authentication context
+└── services/
+    └── supabaseConfig.ts  # Supabase configuration
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## 🎨 Key Features Implemented
 
-## Learn more
+### Authentication
+- Email/password registration and login
+- Persistent sessions
+- Protected routes
+- Automatic redirect based on auth state
 
-To learn more about developing your project with Expo, look at the following resources:
+### Posts
+- Create posts with text and images
+- Real-time post updates
+- Chronological feed
+- Author information and timestamps
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### Profile
+- User information display
+- Post history
+- Profile picture upload
+- Post count
 
-## Join the community
+### UI/UX
+- Responsive grid layout for posts
+- Loading states and error handling
+- Pull-to-refresh functionality
+- Custom modals and alerts
 
-Join our community of developers creating universal apps.
+## 📲 Deployment
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+The app is deployed on [Appetize.io](your-appetize-link) for testing on both iOS and Android devices.
+
+
+## 👥 Development
+
+This project was developed as part of the HNG 13 Frontend Track Stage Four requirements.
+
+## 📄 License
+
+This project is for educational purposes as part of the HNG Internship program.

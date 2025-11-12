@@ -253,13 +253,13 @@ export default function Profile() {
                 }}
                 style={styles.profileImage}
               />
-            ) : null}
-            
-            <View style={styles.fallbackAvatar}>
-              <Text style={styles.fallbackText}>
-                {user?.display_name?.substring(0, 2).toUpperCase() || 'US'}
-              </Text>
-            </View>
+            ) : (
+              <View style={styles.fallbackAvatar}>
+                <Text style={styles.fallbackText}>
+                  {user?.display_name?.substring(0, 2).toUpperCase() || 'US'}
+                </Text>
+              </View>
+            )}
             
             <TouchableOpacity 
               style={styles.editPhotoButton}
@@ -416,8 +416,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 3,
     borderColor: '#8B5CF6',
-    position: 'absolute',
-    zIndex: -1,
   },
   fallbackText: {
     color: '#FFFFFF',
@@ -477,6 +475,7 @@ const styles = StyleSheet.create({
   },
   gridContainer: {
     padding: 2,
+    paddingBottom: 100,
   },
   gridItem: {
     flex: 1 / 3,
